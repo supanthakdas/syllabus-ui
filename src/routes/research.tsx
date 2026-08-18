@@ -103,6 +103,9 @@ const mockPapers = [
 ];
 
 function ResearchPage() {
+  const [department, setDepartment] = useState<string>(departments[0]);
+  const [teacher, setTeacher] = useState<string>(teachers[0]);
+
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] flex-col bg-background">
       {/* Top search bar */}
