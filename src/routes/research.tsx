@@ -197,9 +197,26 @@ function ResearchPage() {
     visibleFaculty.find((f) => f.id === selectedFacultyId) ?? null;
 
   const officeHoursQuery = useQuery({
-    queryKey: ["office-hours", selectedFaculty?.name],
-    queryFn: () => fetchOfficeHours(selectedFaculty!.name),
-    enabled: Boolean(selectedFaculty?.name) && isSupabaseConfigured,
+    queryKey: ["office-hours", selectedFaculty?.id],
+    queryFn: () => fetchOfficeHours(selectedFaculty!.id),
+    enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
+  });
+
+  const bookMutation = useMutation({
+    mutationFn: bookOfficeHour,
+    onSuccess: async (_data, slotId) => {
+      const slot = (officeHoursQuery.data ?? []).find((s) => s.id === slotId);
+      await officeHoursQuery.refetch();
+      toast.success("Appointment requested", {
+        description: `${selectedFaculty?.name ?? ""} · ${slot?.day ?? ""} ${
+          slot?.time_slot ?? ""
+        }`.trim(),
+      });
+    },
+    onError: async (error: Error) => {
+      await officeHoursQuery.refetch();
+      toast.error("Couldn't book that slot", { description: error.message });
+    },
   });
 
   const papersQuery = useQuery({
@@ -209,7 +226,15 @@ function ResearchPage() {
     retry: false,
   });
 
+  const facultyPapersQuery = useQuery({
+    queryKey: ["faculty-papers", query],
+    queryFn: () => fetchFacultyPapers(query),
+    enabled: query.length > 0 && isSupabaseConfigured,
+    retry: false,
+  });
+
   const papers = papersQuery.data ?? [];
+  const facultyPapers = facultyPapersQuery.data ?? [];
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
