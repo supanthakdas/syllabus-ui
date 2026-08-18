@@ -145,7 +145,7 @@ function ResearchPage() {
                 <label className="text-xs font-medium text-muted-foreground">
                   Department
                 </label>
-                <Select defaultValue={departments[0]}>
+                <Select value={department} onValueChange={setDepartment}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
@@ -163,7 +163,7 @@ function ResearchPage() {
                 <label className="text-xs font-medium text-muted-foreground">
                   Teacher Name
                 </label>
-                <Select defaultValue={teachers[0]}>
+                <Select value={teacher} onValueChange={setTeacher}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select teacher" />
                   </SelectTrigger>
