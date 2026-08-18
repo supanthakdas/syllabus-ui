@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   BookOpen,
@@ -76,6 +76,15 @@ interface Paper {
   authors?: PaperAuthor[] | null;
 }
 
+interface LocalPublication {
+  id: number;
+  title: string | null;
+  year: number | null;
+  link: string | null;
+  faculty_name: string | null;
+  faculty_department: string | null;
+}
+
 async function fetchFaculty(): Promise<Faculty[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
@@ -87,16 +96,61 @@ async function fetchFaculty(): Promise<Faculty[]> {
   return data ?? [];
 }
 
-async function fetchOfficeHours(facultyName: string): Promise<OfficeHour[]> {
+async function fetchOfficeHours(facultyId: number): Promise<OfficeHour[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from("office_hours")
     .select("id, faculty_name, day, time_slot, status")
-    .eq("faculty_name", facultyName)
+    .eq("faculty_id", facultyId)
     .eq("status", "free")
     .returns<OfficeHour[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+async function bookOfficeHour(slotId: number): Promise<void> {
+  if (!supabase) throw new Error("Database is not connected.");
+  const { data, error } = await supabase
+    .from("office_hours")
+    .update({ status: "requested" })
+    .eq("id", slotId)
+    .eq("status", "free")
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error("That slot was just taken. Please pick another one.");
+  }
+}
+
+async function fetchFacultyPapers(term: string): Promise<LocalPublication[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("publications")
+    .select("id, title, year, link, faculty:faculty_id (name, department)")
+    .ilike("title", `%${term}%`)
+    .limit(15);
+  if (error) throw new Error(error.message);
+  type Row = {
+    id: number;
+    title: string | null;
+    year: number | null;
+    link: string | null;
+    faculty:
+      | { name: string | null; department: string | null }
+      | { name: string | null; department: string | null }[]
+      | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((row) => {
+    const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
+    return {
+      id: row.id,
+      title: row.title,
+      year: row.year,
+      link: row.link,
+      faculty_name: fac?.name ?? null,
+      faculty_department: fac?.department ?? null,
+    };
+  });
 }
 
 async function searchPapers(term: string): Promise<Paper[]> {
@@ -143,9 +197,26 @@ function ResearchPage() {
     visibleFaculty.find((f) => f.id === selectedFacultyId) ?? null;
 
   const officeHoursQuery = useQuery({
-    queryKey: ["office-hours", selectedFaculty?.name],
-    queryFn: () => fetchOfficeHours(selectedFaculty!.name),
-    enabled: Boolean(selectedFaculty?.name) && isSupabaseConfigured,
+    queryKey: ["office-hours", selectedFaculty?.id],
+    queryFn: () => fetchOfficeHours(selectedFaculty!.id),
+    enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
+  });
+
+  const bookMutation = useMutation({
+    mutationFn: bookOfficeHour,
+    onSuccess: async (_data, slotId) => {
+      const slot = (officeHoursQuery.data ?? []).find((s) => s.id === slotId);
+      await officeHoursQuery.refetch();
+      toast.success("Appointment requested", {
+        description: `${selectedFaculty?.name ?? ""} · ${slot?.day ?? ""} ${
+          slot?.time_slot ?? ""
+        }`.trim(),
+      });
+    },
+    onError: async (error: Error) => {
+      await officeHoursQuery.refetch();
+      toast.error("Couldn't book that slot", { description: error.message });
+    },
   });
 
   const papersQuery = useQuery({
@@ -155,7 +226,15 @@ function ResearchPage() {
     retry: false,
   });
 
+  const facultyPapersQuery = useQuery({
+    queryKey: ["faculty-papers", query],
+    queryFn: () => fetchFacultyPapers(query),
+    enabled: query.length > 0 && isSupabaseConfigured,
+    retry: false,
+  });
+
   const papers = papersQuery.data ?? [];
+  const facultyPapers = facultyPapersQuery.data ?? [];
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
