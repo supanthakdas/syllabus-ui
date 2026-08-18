@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
   BookOpen,
@@ -76,6 +76,15 @@ interface Paper {
   authors?: PaperAuthor[] | null;
 }
 
+interface LocalPublication {
+  id: number;
+  title: string | null;
+  year: number | null;
+  link: string | null;
+  faculty_name: string | null;
+  faculty_department: string | null;
+}
+
 async function fetchFaculty(): Promise<Faculty[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
@@ -87,16 +96,61 @@ async function fetchFaculty(): Promise<Faculty[]> {
   return data ?? [];
 }
 
-async function fetchOfficeHours(facultyName: string): Promise<OfficeHour[]> {
+async function fetchOfficeHours(facultyId: number): Promise<OfficeHour[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from("office_hours")
     .select("id, faculty_name, day, time_slot, status")
-    .eq("faculty_name", facultyName)
+    .eq("faculty_id", facultyId)
     .eq("status", "free")
     .returns<OfficeHour[]>();
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+async function bookOfficeHour(slotId: number): Promise<void> {
+  if (!supabase) throw new Error("Database is not connected.");
+  const { data, error } = await supabase
+    .from("office_hours")
+    .update({ status: "requested" })
+    .eq("id", slotId)
+    .eq("status", "free")
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error("That slot was just taken. Please pick another one.");
+  }
+}
+
+async function fetchFacultyPapers(term: string): Promise<LocalPublication[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("publications")
+    .select("id, title, year, link, faculty:faculty_id (name, department)")
+    .ilike("title", `%${term}%`)
+    .limit(15);
+  if (error) throw new Error(error.message);
+  type Row = {
+    id: number;
+    title: string | null;
+    year: number | null;
+    link: string | null;
+    faculty:
+      | { name: string | null; department: string | null }
+      | { name: string | null; department: string | null }[]
+      | null;
+  };
+  return ((data ?? []) as unknown as Row[]).map((row) => {
+    const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
+    return {
+      id: row.id,
+      title: row.title,
+      year: row.year,
+      link: row.link,
+      faculty_name: fac?.name ?? null,
+      faculty_department: fac?.department ?? null,
+    };
+  });
 }
 
 async function searchPapers(term: string): Promise<Paper[]> {
