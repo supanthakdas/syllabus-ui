@@ -152,8 +152,10 @@ async function fetchPapersByFaculty(facultyId: number): Promise<LocalPublication
 }
 
 async function fetchScholarPapers(scholarLink: string, facultyName: string): Promise<LocalPublication[]> {
+  if (!supabase) return [];
   const match = scholarLink.match(/user=([A-Za-z0-9_-]+)/);
   if (!match) return [];
+
   const authorId = match[1];
 
   try {
@@ -203,8 +205,10 @@ async function fetchOrcidPapers(orcidLink: string, facultyName: string): Promise
 
 async function searchPapersWithAI(query: string, faculties: Faculty[]): Promise<AIPaperResult[]> {
   if (!query.trim()) return [];
+  if (!supabase) return [];
 
   let facultyCandidates: any[] = [];
+
   if (supabase) {
     const { data } = await supabase
     .from("publications")
@@ -378,8 +382,10 @@ function ResearchPage() {
   async function handleSendChatMessage(e: FormEvent) {
     e.preventDefault();
     if (!chatInput.trim() || !discussPaper) return;
+    if (!supabase) return;
 
     const newUserMsg = { role: 'user' as const, content: chatInput.trim() };
+
     setChatMessages((prev) => [...prev, newUserMsg]);
     setChatInput("");
     setIsChatLoading(true);
