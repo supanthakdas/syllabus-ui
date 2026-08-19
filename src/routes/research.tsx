@@ -79,8 +79,10 @@ interface Paper {
 interface LocalPublication {
   id: number;
   title: string | null;
+  author: string | null;
+  source: string | null;
   year: number | null;
-  link: string | null;
+  url: string | null;
   faculty_name: string | null;
   faculty_department: string | null;
 }
@@ -126,33 +128,54 @@ async function fetchFacultyPapers(term: string): Promise<LocalPublication[]> {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from("publications")
-    .select("id, title, year, link, faculty:faculty_id (name, department)")
+    .select("id, title, author, source, year, url, faculty:faculty_id (name, department)")
     .ilike("title", `%${term}%`)
     .limit(15);
   if (error) throw new Error(error.message);
+  
   type Row = {
     id: number;
     title: string | null;
+    author: string | null;
+    source: string | null;
     year: number | null;
-    link: string | null;
-    faculty:
-      | { name: string | null; department: string | null }
-      | { name: string | null; department: string | null }[]
-      | null;
+    url: string | null;
+    faculty: any;
   };
   return ((data ?? []) as unknown as Row[]).map((row) => {
     const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
     return {
       id: row.id,
       title: row.title,
+      author: row.author,
+      source: row.source,
       year: row.year,
-      link: row.link,
+      url: row.url,
       faculty_name: fac?.name ?? null,
       faculty_department: fac?.department ?? null,
     };
   });
 }
-
+async function fetchPapersByFaculty(facultyId: number): Promise<LocalPublication[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("publications")
+    .select("id, title, author, source, year, url, faculty:faculty_id (name, department)")
+    .eq("faculty_id", facultyId)
+    .limit(15);
+  if (error) throw new Error(error.message);
+  
+  type Row = {
+    id: number; title: string | null; author: string | null; source: string | null; year: number | null; url: string | null; faculty: any;
+  };
+  
+  return ((data ?? []) as unknown as Row[]).map((row) => {
+    const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
+    return {
+      id: row.id, title: row.title, author: row.author, source: row.source, year: row.year, url: row.url, faculty_name: fac?.name ?? null, faculty_department: fac?.department ?? null,
+    };
+  });
+}
 async function searchPapers(term: string): Promise<Paper[]> {
   const res = await fetch(
     `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
@@ -226,15 +249,25 @@ function ResearchPage() {
     retry: false,
   });
 
+  // 1. Query for the specific teacher you clicked on
+  const selectedFacultyPapersQuery = useQuery({
+    queryKey: ["faculty-papers-id", selectedFaculty?.id],
+    queryFn: () => fetchPapersByFaculty(selectedFaculty!.id),
+    enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
+  });
+  const selectedFacultyPapers = selectedFacultyPapersQuery.data ?? [];
+
+  // 2. Query for the global search bar
   const facultyPapersQuery = useQuery({
     queryKey: ["faculty-papers", query],
     queryFn: () => fetchFacultyPapers(query),
     enabled: query.length > 0 && isSupabaseConfigured,
     retry: false,
   });
-
-  const papers = papersQuery.data ?? [];
   const facultyPapers = facultyPapersQuery.data ?? [];
+
+  // 3. Query for Semantic Scholar
+  const papers = papersQuery.data ?? [];
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -460,6 +493,30 @@ function ResearchPage() {
                       ))}
                     </div>
                   )}
+                  {/* Faculty Specific Papers */}
+                {selectedFacultyPapers.length > 0 && (
+                  <div className="mt-6 space-y-3">
+                    <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <BookOpen className="h-4 w-4" />
+                      Published Papers
+                    </h3>
+                    <div className="grid gap-3">
+                      {selectedFacultyPapers.map((pub) => (
+                        <div key={pub.id} className="rounded-md border border-border bg-muted/20 p-3">
+                          <h4 className="font-medium text-sm">{pub.title}</h4>
+                          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                            <span>{pub.author ?? "Unknown Author"} · {pub.year ?? ""}</span>
+                            {pub.url && (
+                              <a href={pub.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                                Read <ExternalLink className="h-3 w-3" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 </CardContent>
               </Card>
             )}
@@ -495,7 +552,7 @@ function ResearchPage() {
                             <CardTitle className="text-lg font-semibold leading-snug text-foreground">
                               {pub.title ?? "Untitled publication"}
                             </CardTitle>
-                            {pub.link && (
+                            {pub.url && (
                               <Button
                                 asChild
                                 variant="ghost"
@@ -503,7 +560,7 @@ function ResearchPage() {
                                 className="shrink-0 text-muted-foreground hover:text-primary"
                               >
                                 <a
-                                  href={pub.link}
+                                  href={pub.url}
                                   target="_blank"
                                   rel="noreferrer"
                                   aria-label="Open publication"
