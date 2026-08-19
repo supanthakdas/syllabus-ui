@@ -176,6 +176,56 @@ async function fetchPapersByFaculty(facultyId: number): Promise<LocalPublication
     };
   });
 }
+// 1. Fetch from Google Scholar via your Secure Edge Function
+async function fetchScholarPapers(scholarLink: string, facultyName: string): Promise<LocalPublication[]> {
+  const match = scholarLink.match(/user=([A-Za-z0-9_-]+)/);
+  if (!match) return [];
+  const authorId = match[1];
+
+  try {
+    const { data, error } = await supabase.functions.invoke('search-papers', {
+      body: { authorId, facultyName }
+    });
+
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error("Edge function error:", e);
+    return [];
+  }
+}
+
+// 2. Fetch from ORCID's Public API (No secret key needed!)
+async function fetchOrcidPapers(orcidLink: string, facultyName: string): Promise<LocalPublication[]> {
+  const match = orcidLink.match(/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9X]{4})/);
+  if (!match) return [];
+  const orcidId = match[1];
+
+  try {
+    const res = await fetch(`https://pub.orcid.org/v3.0/${orcidId}/works`, {
+      headers: { "Accept": "application/json" }
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    
+    return (json.group || []).map((work: any, i: number) => {
+      const summary = work["work-summary"]?.[0];
+      return {
+        id: parseInt(`999${i}${Math.floor(Math.random()*100)}`),
+        title: summary?.title?.title?.value || "Untitled ORCID Paper",
+        author: facultyName,
+        source: "ORCID",
+        year: summary?.["publication-date"]?.year?.value ? parseInt(summary["publication-date"].year.value) : null,
+        url: summary?.url?.value ? summary.url.value : orcidLink,
+        faculty_name: facultyName,
+        faculty_department: null,
+      };
+    });
+  } catch (e) {
+    console.error("ORCID fetch error:", e);
+    return [];
+  }
+}
 async function searchPapers(term: string): Promise<Paper[]> {
   const res = await fetch(
     `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
@@ -252,7 +302,27 @@ function ResearchPage() {
   // 1. Query for the specific teacher you clicked on
   const selectedFacultyPapersQuery = useQuery({
     queryKey: ["faculty-papers-id", selectedFaculty?.id],
-    queryFn: () => fetchPapersByFaculty(selectedFaculty!.id),
+    queryFn: async () => {
+      if (!selectedFaculty) return [];
+      
+      // A. Get local papers from Supabase
+      const dbPapers = await fetchPapersByFaculty(selectedFaculty.id);
+      
+      // B. Get Google Scholar papers (via Edge Function)
+      let scholarPapers: LocalPublication[] = [];
+      if (selectedFaculty.scholar_link) {
+        scholarPapers = await fetchScholarPapers(selectedFaculty.scholar_link, selectedFaculty.name);
+      }
+
+      // C. Get ORCID papers (via public API)
+      let orcidPapers: LocalPublication[] = [];
+      if (selectedFaculty.orcid_link) {
+        orcidPapers = await fetchOrcidPapers(selectedFaculty.orcid_link, selectedFaculty.name);
+      }
+
+      // D. Combine all results into one master list
+      return [...dbPapers, ...scholarPapers, ...orcidPapers];
+    },
     enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
   });
   const selectedFacultyPapers = selectedFacultyPapersQuery.data ?? [];
