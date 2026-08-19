@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResearchRouteImport } from './routes/research'
 import { Route as StudyCompanionRouteImport } from './routes/study-companion'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResearchRoute = ResearchRouteImport.update({
@@ -31,30 +37,34 @@ const StudyCompanionRoute = StudyCompanionRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/research': typeof ResearchRoute
   '/study-companion': typeof StudyCompanionRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/research': typeof ResearchRoute
   '/study-companion': typeof StudyCompanionRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/research': typeof ResearchRoute
   '/study-companion': typeof StudyCompanionRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/research' | '/study-companion'
+  fullPaths: '/' | '/auth' | '/research' | '/study-companion'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/research' | '/study-companion'
-  id: '__root__' | '/' | '/research' | '/study-companion'
+  to: '/' | '/auth' | '/research' | '/study-companion'
+  id: '__root__' | '/' | '/auth' | '/research' | '/study-companion'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRoute
   ResearchRoute: typeof ResearchRoute
   StudyCompanionRoute: typeof StudyCompanionRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/research': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRoute,
   ResearchRoute: ResearchRoute,
   StudyCompanionRoute: StudyCompanionRoute,
 }
