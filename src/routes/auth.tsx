@@ -49,19 +49,26 @@ function AuthPage() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-        if (error) throw error;
+        // Try signing up
+        const { error } = await supabase.auth.signUp({ email, password });
 
-        toast.success("Account created! Welcome to Syllabus+.");
+        if (error) {
+          // If email is rate-limited or already taken, gracefully try logging them in instead!
+          if (error.status === 429 || error.message.includes("rate limit") || error.message.includes("already registered")) {
+            const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+            if (signInError) throw signInError;
+            toast.success("Logged in successfully!");
+            navigate({ to: "/research" });
+            return;
+          }
+          throw error;
+        }
+
+        toast.success("Account created & logged in!");
         navigate({ to: "/research" });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // Normal Sign In
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
         toast.success("Logged in successfully!");
