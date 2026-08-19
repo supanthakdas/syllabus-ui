@@ -443,14 +443,9 @@ function ResearchPage() {
                         <button
                           key={slot.id}
                           type="button"
-                          onClick={() =>
-                            toast.success("Appointment requested", {
-                              description: `${selectedFaculty.name} · ${slot.day ?? ""} ${
-                                slot.time_slot ?? ""
-                              }`.trim(),
-                            })
-                          }
-                          className="group"
+                          disabled={bookMutation.isPending}
+                          onClick={() => bookMutation.mutate(slot.id)}
+                          className="group disabled:opacity-60"
                         >
                           <Badge
                             variant="secondary"
