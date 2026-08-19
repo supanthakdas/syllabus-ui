@@ -318,7 +318,17 @@ function ResearchPage() {
   });
 
   const bookMutation = useMutation({
-    mutationFn: bookOfficeHour,
+    mutationFn: async (slotId: number) => {
+      // 1. Check if user is logged in
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("AUTH_REQUIRED");
+      }
+
+      // 2. If logged in, proceed with booking
+      await bookOfficeHour(slotId);
+    },
     onSuccess: async (_data, slotId) => {
       const slot = (officeHoursQuery.data ?? []).find((s) => s.id === slotId);
       await officeHoursQuery.refetch();
@@ -327,8 +337,13 @@ function ResearchPage() {
       });
     },
     onError: async (error: Error) => {
-      await officeHoursQuery.refetch();
-      toast.error("Couldn't book that slot", { description: error.message });
+      if (error.message === "AUTH_REQUIRED") {
+        toast.error("Please log in to book office hours!");
+        // Optional: you can import useNavigate and route them to /auth here!
+      } else {
+        await officeHoursQuery.refetch();
+        toast.error("Couldn't book that slot", { description: error.message });
+      }
     },
   });
 
