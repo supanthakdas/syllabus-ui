@@ -443,14 +443,9 @@ function ResearchPage() {
                         <button
                           key={slot.id}
                           type="button"
-                          onClick={() =>
-                            toast.success("Appointment requested", {
-                              description: `${selectedFaculty.name} · ${slot.day ?? ""} ${
-                                slot.time_slot ?? ""
-                              }`.trim(),
-                            })
-                          }
-                          className="group"
+                          disabled={bookMutation.isPending}
+                          onClick={() => bookMutation.mutate(slot.id)}
+                          className="group disabled:opacity-60"
                         >
                           <Badge
                             variant="secondary"
@@ -469,16 +464,93 @@ function ResearchPage() {
               </Card>
             )}
 
+            {/* Faculty publications */}
+            {query && (facultyPapersQuery.isLoading || facultyPapers.length > 0) && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    From Varendra University faculty
+                  </h2>
+                  <Badge variant="outline" className="font-normal">
+                    Our faculty
+                  </Badge>
+                </div>
+
+                {facultyPapersQuery.isLoading
+                  ? [0, 1].map((i) => (
+                      <Card key={i} className="border-border/60">
+                        <CardHeader className="space-y-2 pb-2">
+                          <Skeleton className="h-5 w-3/4" />
+                          <Skeleton className="h-3 w-1/2" />
+                        </CardHeader>
+                      </Card>
+                    ))
+                  : facultyPapers.map((pub) => (
+                      <Card
+                        key={pub.id}
+                        className="border-primary/30 transition-shadow hover:shadow-md"
+                      >
+                        <CardHeader className="pb-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <CardTitle className="text-lg font-semibold leading-snug text-foreground">
+                              {pub.title ?? "Untitled publication"}
+                            </CardTitle>
+                            {pub.link && (
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="icon"
+                                className="shrink-0 text-muted-foreground hover:text-primary"
+                              >
+                                <a
+                                  href={pub.link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label="Open publication"
+                                >
+                                  <ArrowUpRight className="h-4 w-4" />
+                                </a>
+                              </Button>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <User className="h-3 w-3" />
+                              {pub.faculty_name ?? "Unknown author"}
+                              {pub.faculty_department
+                                ? ` · ${pub.faculty_department}`
+                                : ""}
+                            </span>
+                            {pub.year && (
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                {pub.year}
+                              </span>
+                            )}
+                          </div>
+                        </CardHeader>
+                      </Card>
+                    ))}
+              </div>
+            )}
+
             {/* Papers */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">
-                  {query
-                    ? papersQuery.isLoading
-                      ? "Searching Semantic Scholar…"
-                      : `Showing ${papers.length} result${papers.length === 1 ? "" : "s"} for “${query}”`
-                    : "Search a topic above to discover papers."}
-                </p>
+                <div>
+                  {query && (
+                    <h2 className="text-sm font-semibold text-foreground">
+                      From Semantic Scholar
+                    </h2>
+                  )}
+                  <p className="text-sm text-muted-foreground">
+                    {query
+                      ? papersQuery.isLoading
+                        ? "Searching Semantic Scholar…"
+                        : `Showing ${papers.length} result${papers.length === 1 ? "" : "s"} for “${query}”`
+                      : "Search a topic above to discover papers."}
+                  </p>
+                </div>
                 {query && (
                   <Badge variant="outline" className="font-normal">
                     Semantic Scholar
