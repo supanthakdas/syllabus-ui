@@ -248,6 +248,7 @@ function ResearchPage() {
   const [selectedFacultyId, setSelectedFacultyId] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
+  const [paperFilter, setPaperFilter] = useState("");
 
   const facultyQuery = useQuery({
     queryKey: ["faculty"],
@@ -326,6 +327,9 @@ function ResearchPage() {
     enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
   });
   const selectedFacultyPapers = selectedFacultyPapersQuery.data ?? [];
+  const filteredFacultyPapers = selectedFacultyPapers.filter((pub) =>
+    (pub.title || "").toLowerCase().includes(paperFilter.toLowerCase())
+  );
 
   // 2. Query for the global search bar
   const facultyPapersQuery = useQuery({
@@ -565,28 +569,43 @@ function ResearchPage() {
                   )}
                   {/* Faculty Specific Papers */}
                 {selectedFacultyPapers.length > 0 && (
-                  <div className="mt-6 space-y-3">
-                    <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                      <BookOpen className="h-4 w-4" />
-                      Published Papers
-                    </h3>
-                    <div className="grid gap-3">
-                      {selectedFacultyPapers.map((pub) => (
-                        <div key={pub.id} className="rounded-md border border-border bg-muted/20 p-3">
-                          <h4 className="font-medium text-sm">{pub.title}</h4>
-                          <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                            <span>{pub.author ?? "Unknown Author"} · {pub.year ?? ""}</span>
-                            {pub.url && (
-                              <a href={pub.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
-                                Read <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="mt-6 space-y-3 pt-4 border-t border-border/50">
+                      <div className="flex items-center justify-between">
+                        <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                          <BookOpen className="h-4 w-4" />
+                          Published Papers ({selectedFacultyPapers.length})
+                        </h3>
+                      </div>
+                      
+                      {/* Local Paper Search Bar */}
+                      <Input
+                        placeholder="Search these papers..."
+                        value={paperFilter}
+                        onChange={(e) => setPaperFilter(e.target.value)}
+                        className="h-8 text-sm bg-muted/50"
+                      />
+
+                      <div className="grid gap-3 max-h-96 overflow-y-auto pr-2">
+                        {filteredFacultyPapers.length > 0 ? (
+                          filteredFacultyPapers.map((pub) => (
+                            <div key={pub.id} className="rounded-md border border-border bg-muted/20 p-3">
+                              <h4 className="font-medium text-sm">{pub.title}</h4>
+                              <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{pub.author ?? "Unknown Author"} · {pub.year ?? ""}</span>
+                                {pub.url && (
+                                  <a href={pub.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                                    Read <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-muted-foreground text-center py-4">No papers match your search.</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
                 </CardContent>
               </Card>
             )}
