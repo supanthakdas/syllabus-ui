@@ -208,70 +208,61 @@ async function fetchOrcidPapers(orcidLink: string, facultyName: string): Promise
   }
 }
 
-// 3. Unified Global Search with Gemini AI
-async function searchPapersWithAI(query: string): Promise<AIPaperResult[]> {
+// 3. Unified Global Search with Gemini AI(Omni-Search)
+async function searchPapersWithAI(query: string, faculties: Faculty[]): Promise<AIPaperResult[]> {
   if (!query.trim()) return [];
 
-  // A. Fetch candidate university papers from Supabase
+  // A. Local DB Papers
   let facultyCandidates: any[] = [];
   if (supabase) {
-    const { data } = await supabase
-    .from("publications")
-    .select("id, title, author, year, url, faculty:faculty_id (name, department)")
-    .limit(30);
-
+    const { data } = await supabase.from("publications").select("id, title, author, year, url, faculty:faculty_id (name, department)").limit(30);
     facultyCandidates = (data ?? []).map((row: any) => {
       const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
-      return {
-        id: `fac-${row.id}`,
-        title: row.title,
-        author: row.author || fac?.name || "Varendra Faculty",
-        year: row.year,
-        url: row.url,
-        source: "Varendra University Faculty",
-        isFaculty: true,
-      };
+      return { id: `fac-${row.id}`, title: row.title, author: row.author || fac?.name || "Varendra Faculty", year: row.year, url: row.url, source: "Varendra DB", isFaculty: true };
     });
   }
 
-  // B. Fetch global paper candidates from Semantic Scholar
+  // B. Semantic Scholar
   let semanticCandidates: any[] = [];
   try {
-    const res = await fetch(
-      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
-        query
-      )}&limit=15&fields=title,abstract,authors,year,url`
-    );
+    const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=10&fields=title,abstract,authors,year,url`);
     if (res.ok) {
       const json = await res.json();
       semanticCandidates = (json.data ?? []).map((p: any) => ({
-        id: `sem-${p.paperId}`,
-        title: p.title,
-        author: (p.authors ?? []).map((a: any) => a.name).join(", "),
-                                                              year: p.year,
-                                                              url: p.url,
-                                                              abstract: p.abstract,
-                                                              source: "Semantic Scholar",
-                                                              isFaculty: false,
+        id: `sem-${p.paperId}`, title: p.title, author: (p.authors ?? []).map((a: any) => a.name).join(", "), year: p.year, url: p.url, abstract: p.abstract, source: "Semantic Scholar", isFaculty: false
       }));
     }
-  } catch (err) {
-    console.warn("Semantic Scholar candidate error:", err);
+  } catch (err) { console.warn("Semantic error:", err); }
+
+  // C. Google Scholar & ORCID (The Hackathon Proof of Concept)
+  // We take just 2 faculties who have links so we don't get IP banned during the search!
+  let externalFacultyPapers: any[] = [];
+  const demoFaculties = faculties.filter(f => f.scholar_link || f.orcid_link).slice(0, 2);
+
+  for (const fac of demoFaculties) {
+    if (fac.scholar_link) {
+      const scholar = await fetchScholarPapers(fac.scholar_link, fac.name);
+      externalFacultyPapers.push(...scholar.map(p => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
+    }
+    if (fac.orcid_link) {
+      const orcid = await fetchOrcidPapers(fac.orcid_link, fac.name);
+      externalFacultyPapers.push(...orcid.map(p => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
+    }
   }
 
-  const allCandidates = [...facultyCandidates, ...semanticCandidates];
+  // D. Combine EVERYTHING and send to Gemini!
+  const allCandidates = [...facultyCandidates, ...semanticCandidates, ...externalFacultyPapers];
   if (allCandidates.length === 0) return [];
 
-  // C. Pass candidates to Gemini AI via Supabase Edge Function
   try {
     const { data, error } = await supabase.functions.invoke("ai-paper-search", {
-      body: { query, papers: allCandidates },
+      body: { query, papers: allCandidates }
     });
     if (error) throw error;
     return data || [];
   } catch (err) {
     console.error("AI Paper Search Error:", err);
-    return allCandidates;
+    return []; // Return empty so we don't show irrelevant papers if AI fails
   }
 }
 
@@ -362,9 +353,9 @@ function ResearchPage() {
   // Unified AI Global Search Query
   const aiSearchQuery = useQuery({
     queryKey: ["ai-paper-search", query],
-    queryFn: () => searchPapersWithAI(query),
-                                 enabled: query.length > 0,
-                                 retry: false,
+    queryFn: () => searchPapersWithAI(query, faculty),
+    enabled: query.length > 0 && faculty.length > 0,
+    retry: false,
   });
 
   const aiResults = aiSearchQuery.data ?? [];
