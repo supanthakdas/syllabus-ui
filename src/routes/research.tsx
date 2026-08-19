@@ -12,8 +12,11 @@ import {
   Search,
   Sparkles,
   User,
+  X,
+  Send,
+  Loader2,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -47,14 +50,6 @@ export const Route = createFileRoute("/research")({
         content:
         "Search research papers, filter faculty by department, and book open office-hour slots on Syllabus+.",
       },
-      { property: "og:title", content: "Research & Connect — Syllabus+" },
-      {
-        property: "og:description",
-        content:
-        "Search research papers, filter faculty by department, and book open office-hour slots on Syllabus+.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: ResearchPage,
@@ -82,6 +77,7 @@ interface AIPaperResult {
   source: string;
   isFaculty?: boolean;
   relevanceReason?: string;
+  abstract?: string;
 }
 
 async function fetchFaculty(): Promise<Faculty[]> {
@@ -155,7 +151,6 @@ async function fetchPapersByFaculty(facultyId: number): Promise<LocalPublication
   });
 }
 
-// 1. Fetch from Google Scholar via Edge Function
 async function fetchScholarPapers(scholarLink: string, facultyName: string): Promise<LocalPublication[]> {
   const match = scholarLink.match(/user=([A-Za-z0-9_-]+)/);
   if (!match) return [];
@@ -165,7 +160,6 @@ async function fetchScholarPapers(scholarLink: string, facultyName: string): Pro
     const { data, error } = await supabase.functions.invoke("search-papers", {
       body: { authorId, facultyName },
     });
-
     if (error) throw error;
     return data || [];
   } catch (e) {
@@ -174,7 +168,6 @@ async function fetchScholarPapers(scholarLink: string, facultyName: string): Pro
   }
 }
 
-// 2. Fetch from ORCID's Public API
 async function fetchOrcidPapers(orcidLink: string, facultyName: string): Promise<LocalPublication[]> {
   const match = orcidLink.match(/([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9X]{4})/);
   if (!match) return [];
@@ -208,61 +201,79 @@ async function fetchOrcidPapers(orcidLink: string, facultyName: string): Promise
   }
 }
 
-// 3. Unified Global Search with Gemini AI(Omni-Search)
 async function searchPapersWithAI(query: string, faculties: Faculty[]): Promise<AIPaperResult[]> {
   if (!query.trim()) return [];
 
-  // A. Local DB Papers
   let facultyCandidates: any[] = [];
   if (supabase) {
-    const { data } = await supabase.from("publications").select("id, title, author, year, url, faculty:faculty_id (name, department)").limit(30);
+    const { data } = await supabase
+    .from("publications")
+    .select("id, title, author, year, url, faculty:faculty_id (name, department)")
+    .limit(30);
     facultyCandidates = (data ?? []).map((row: any) => {
       const fac = Array.isArray(row.faculty) ? row.faculty[0] : row.faculty;
-      return { id: `fac-${row.id}`, title: row.title, author: row.author || fac?.name || "Varendra Faculty", year: row.year, url: row.url, source: "Varendra DB", isFaculty: true };
+      return {
+        id: `fac-${row.id}`,
+        title: row.title,
+        author: row.author || fac?.name || "Varendra Faculty",
+        year: row.year,
+        url: row.url,
+        source: "Varendra DB",
+        isFaculty: true,
+      };
     });
   }
 
-  // B. Semantic Scholar
   let semanticCandidates: any[] = [];
   try {
-    const res = await fetch(`https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=10&fields=title,abstract,authors,year,url`);
+    const res = await fetch(
+      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
+        query
+      )}&limit=10&fields=title,abstract,authors,year,url`
+    );
     if (res.ok) {
       const json = await res.json();
       semanticCandidates = (json.data ?? []).map((p: any) => ({
-        id: `sem-${p.paperId}`, title: p.title, author: (p.authors ?? []).map((a: any) => a.name).join(", "), year: p.year, url: p.url, abstract: p.abstract, source: "Semantic Scholar", isFaculty: false
+        id: `sem-${p.paperId}`,
+        title: p.title,
+        author: (p.authors ?? []).map((a: any) => a.name).join(", "),
+                                                              year: p.year,
+                                                              url: p.url,
+                                                              abstract: p.abstract,
+                                                              source: "Semantic Scholar",
+                                                              isFaculty: false,
       }));
     }
-  } catch (err) { console.warn("Semantic error:", err); }
+  } catch (err) {
+    console.warn("Semantic error:", err);
+  }
 
-  // C. Google Scholar & ORCID (The Hackathon Proof of Concept)
-  // We take just 2 faculties who have links so we don't get IP banned during the search!
   let externalFacultyPapers: any[] = [];
-  const demoFaculties = faculties.filter(f => f.scholar_link || f.orcid_link).slice(0, 2);
+  const demoFaculties = faculties.filter((f) => f.scholar_link || f.orcid_link).slice(0, 2);
 
   for (const fac of demoFaculties) {
     if (fac.scholar_link) {
       const scholar = await fetchScholarPapers(fac.scholar_link, fac.name);
-      externalFacultyPapers.push(...scholar.map(p => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
+      externalFacultyPapers.push(...scholar.map((p) => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
     }
     if (fac.orcid_link) {
       const orcid = await fetchOrcidPapers(fac.orcid_link, fac.name);
-      externalFacultyPapers.push(...orcid.map(p => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
+      externalFacultyPapers.push(...orcid.map((p) => ({ ...p, id: `ext-${p.id}`, isFaculty: true })));
     }
   }
 
-  // D. Combine EVERYTHING and send to Gemini!
   const allCandidates = [...facultyCandidates, ...semanticCandidates, ...externalFacultyPapers];
   if (allCandidates.length === 0) return [];
 
   try {
     const { data, error } = await supabase.functions.invoke("ai-paper-search", {
-      body: { query, papers: allCandidates }
+      body: { query, papers: allCandidates },
     });
     if (error) throw error;
     return data || [];
   } catch (err) {
     console.error("AI Paper Search Error:", err);
-    return []; // Return empty so we don't show irrelevant papers if AI fails
+    return [];
   }
 }
 
@@ -272,6 +283,12 @@ function ResearchPage() {
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
   const [paperFilter, setPaperFilter] = useState("");
+
+  // Chatbot State
+  const [discussPaper, setDiscussPaper] = useState<any | null>(null);
+  const [chatMessages, setChatMessages] = useState<{role: 'user'|'ai', content: string}[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
 
   const facultyQuery = useQuery({
     queryKey: ["faculty"],
@@ -286,12 +303,9 @@ function ResearchPage() {
   ).sort();
 
   const visibleFaculty =
-  department === ALL_DEPARTMENTS
-  ? faculty
-  : faculty.filter((f) => f.department === department);
+  department === ALL_DEPARTMENTS ? faculty : faculty.filter((f) => f.department === department);
 
-  const selectedFaculty =
-  visibleFaculty.find((f) => f.id === selectedFacultyId) ?? null;
+  const selectedFaculty = visibleFaculty.find((f) => f.id === selectedFacultyId) ?? null;
 
   const officeHoursQuery = useQuery({
     queryKey: ["office-hours", selectedFaculty?.id],
@@ -305,9 +319,7 @@ function ResearchPage() {
       const slot = (officeHoursQuery.data ?? []).find((s) => s.id === slotId);
       await officeHoursQuery.refetch();
       toast.success("Appointment requested", {
-        description: `${selectedFaculty?.name ?? ""} · ${slot?.day ?? ""} ${
-          slot?.time_slot ?? ""
-        }`.trim(),
+        description: `${selectedFaculty?.name ?? ""} · ${slot?.day ?? ""} ${slot?.time_slot ?? ""}`.trim(),
       });
     },
     onError: async (error: Error) => {
@@ -316,30 +328,19 @@ function ResearchPage() {
     },
   });
 
-  // Selected faculty papers: DB + Google Scholar + ORCID
   const selectedFacultyPapersQuery = useQuery({
     queryKey: ["faculty-papers-id", selectedFaculty?.id],
     queryFn: async () => {
       if (!selectedFaculty) return [];
-
       const dbPapers = await fetchPapersByFaculty(selectedFaculty.id);
-
       let scholarPapers: LocalPublication[] = [];
       if (selectedFaculty.scholar_link) {
-        scholarPapers = await fetchScholarPapers(
-          selectedFaculty.scholar_link,
-          selectedFaculty.name
-        );
+        scholarPapers = await fetchScholarPapers(selectedFaculty.scholar_link, selectedFaculty.name);
       }
-
       let orcidPapers: LocalPublication[] = [];
       if (selectedFaculty.orcid_link) {
-        orcidPapers = await fetchOrcidPapers(
-          selectedFaculty.orcid_link,
-          selectedFaculty.name
-        );
+        orcidPapers = await fetchOrcidPapers(selectedFaculty.orcid_link, selectedFaculty.name);
       }
-
       return [...dbPapers, ...scholarPapers, ...orcidPapers];
     },
     enabled: Boolean(selectedFaculty?.id) && isSupabaseConfigured,
@@ -350,15 +351,69 @@ function ResearchPage() {
   (pub.title || "").toLowerCase().includes(paperFilter.toLowerCase())
   );
 
-  // Unified AI Global Search Query
   const aiSearchQuery = useQuery({
     queryKey: ["ai-paper-search", query],
     queryFn: () => searchPapersWithAI(query, faculty),
-    enabled: query.length > 0 && faculty.length > 0,
-    retry: false,
+                                 enabled: query.length > 0 && faculty.length > 0,
+                                 retry: false,
   });
 
   const aiResults = aiSearchQuery.data ?? [];
+
+  // --- Chatbot Logic ---
+  // When a user opens a new paper, greet them!
+  useEffect(() => {
+    if (discussPaper) {
+      setChatMessages([
+        {
+          role: 'ai',
+          content: `Hi! I'm your Study Companion. I've just analyzed **"${discussPaper.title}"**.\n\nYou can ask me to summarize it, explain complex terms, or help you brainstorm questions to ask your professor during office hours!`
+        }
+      ]);
+      setChatInput("");
+    }
+  }, [discussPaper]);
+
+  // Handle sending a message
+  async function handleSendChatMessage(e: FormEvent) {
+    e.preventDefault();
+    if (!chatInput.trim() || !discussPaper) return;
+
+    const newUserMsg = { role: 'user' as const, content: chatInput.trim() };
+    setChatMessages((prev) => [...prev, newUserMsg]);
+    setChatInput("");
+    setIsChatLoading(true);
+
+    try {
+      const authorStr = Array.isArray(discussPaper.authors)
+      ? discussPaper.authors.map((a: any) => a.name).join(", ")
+      : discussPaper.author || "Unknown";
+
+      const { data, error } = await supabase.functions.invoke("ai-paper-chat", {
+        body: {
+          paper: {
+            title: discussPaper.title,
+            authors: authorStr,
+            abstract: discussPaper.abstract || "",
+          },
+          // THE FIX: We use .slice(1) to cut off the initial greeting so Gemini
+          // receives a perfectly alternating conversation history!
+          messages: [...chatMessages.slice(1), newUserMsg],
+        },
+      });
+
+      if (error) throw error;
+      setChatMessages((prev) => [...prev, { role: 'ai', content: data.reply }]);
+    } catch (err) {
+      console.error("Chat error:", err);
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'ai', content: "Oops, something went wrong connecting to Gemini. Please try again." },
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  }
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -366,7 +421,7 @@ function ResearchPage() {
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col bg-background">
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col bg-background relative">
     <header className="border-b border-border bg-card/50 px-4 py-4 backdrop-blur-sm md:px-6">
     <div className="mx-auto flex max-w-6xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
     <div>
@@ -399,7 +454,6 @@ function ResearchPage() {
     </header>
 
     <div className="flex flex-1 flex-col md:flex-row">
-    {/* Filters + faculty */}
     <aside className="w-full border-b border-border bg-card/50 md:w-72 md:border-b-0 md:border-r">
     <ScrollArea className="h-full max-h-[calc(100vh-8rem)] px-4 py-4">
     <div className="space-y-5">
@@ -409,9 +463,7 @@ function ResearchPage() {
     </h2>
 
     <div className="space-y-2">
-    <label className="text-xs font-medium text-muted-foreground">
-    Department
-    </label>
+    <label className="text-xs font-medium text-muted-foreground">Department</label>
     {facultyQuery.isLoading ? (
       <Skeleton className="h-9 w-full" />
     ) : (
@@ -426,9 +478,7 @@ function ResearchPage() {
       <SelectValue placeholder="Select department" />
       </SelectTrigger>
       <SelectContent>
-      <SelectItem value={ALL_DEPARTMENTS}>
-      {ALL_DEPARTMENTS}
-      </SelectItem>
+      <SelectItem value={ALL_DEPARTMENTS}>{ALL_DEPARTMENTS}</SelectItem>
       {departments.map((dept) => (
         <SelectItem key={dept} value={dept}>
         {dept}
@@ -447,9 +497,7 @@ function ResearchPage() {
     </label>
 
     {!isSupabaseConfigured ? (
-      <p className="text-xs text-muted-foreground">
-      Connect your database to load faculty.
-      </p>
+      <p className="text-xs text-muted-foreground">Connect your database to load faculty.</p>
     ) : facultyQuery.isLoading ? (
       <div className="space-y-2">
       {[0, 1, 2, 3].map((i) => (
@@ -457,13 +505,9 @@ function ResearchPage() {
       ))}
       </div>
     ) : facultyQuery.isError ? (
-      <p className="text-xs text-destructive">
-      Couldn&apos;t load faculty. Please try again.
-      </p>
+      <p className="text-xs text-destructive">Couldn&apos;t load faculty. Please try again.</p>
     ) : visibleFaculty.length === 0 ? (
-      <p className="text-xs text-muted-foreground">
-      No faculty found for this department.
-      </p>
+      <p className="text-xs text-muted-foreground">No faculty found for this department.</p>
     ) : (
       <ul className="space-y-1">
       {visibleFaculty.map((f) => (
@@ -476,12 +520,8 @@ function ResearchPage() {
           selectedFacultyId === f.id && "bg-accent"
         )}
         >
-        <span className="block text-sm font-medium text-foreground">
-        {f.name}
-        </span>
-        <span className="block text-xs text-muted-foreground">
-        {f.department ?? "—"}
-        </span>
+        <span className="block text-sm font-medium text-foreground">{f.name}</span>
+        <span className="block text-xs text-muted-foreground">{f.department ?? "—"}</span>
         </button>
         </li>
       ))}
@@ -492,10 +532,8 @@ function ResearchPage() {
     </ScrollArea>
     </aside>
 
-    {/* Main */}
     <main className="flex-1 bg-background px-4 py-5 md:px-6">
     <div className="mx-auto max-w-4xl space-y-6">
-    {/* Selected faculty profile */}
     {selectedFaculty && (
       <Card className="border-primary/30">
       <CardHeader className="pb-3">
@@ -505,9 +543,7 @@ function ResearchPage() {
       <GraduationCap className="h-5 w-5" />
       </div>
       <div>
-      <CardTitle className="text-lg">
-      {selectedFaculty.name}
-      </CardTitle>
+      <CardTitle className="text-lg">{selectedFaculty.name}</CardTitle>
       <p className="text-sm text-muted-foreground">
       {selectedFaculty.department ?? "Department not listed"}
       </p>
@@ -516,11 +552,7 @@ function ResearchPage() {
       <div className="flex flex-wrap gap-2">
       {selectedFaculty.scholar_link && (
         <Button asChild variant="outline" size="sm" className="gap-1.5">
-        <a
-        href={selectedFaculty.scholar_link}
-        target="_blank"
-        rel="noreferrer"
-        >
+        <a href={selectedFaculty.scholar_link} target="_blank" rel="noreferrer">
         Google Scholar
         <ExternalLink className="h-3.5 w-3.5" />
         </a>
@@ -528,11 +560,7 @@ function ResearchPage() {
       )}
       {selectedFaculty.orcid_link && (
         <Button asChild variant="outline" size="sm" className="gap-1.5">
-        <a
-        href={selectedFaculty.orcid_link}
-        target="_blank"
-        rel="noreferrer"
-        >
+        <a href={selectedFaculty.orcid_link} target="_blank" rel="noreferrer">
         ORCID
         <ExternalLink className="h-3.5 w-3.5" />
         </a>
@@ -554,9 +582,7 @@ function ResearchPage() {
         ))}
         </div>
       ) : officeHoursQuery.isError ? (
-        <p className="text-sm text-destructive">
-        Couldn&apos;t load office hours.
-        </p>
+        <p className="text-sm text-destructive">Couldn&apos;t load office hours.</p>
       ) : (officeHoursQuery.data ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground">
         No free slots available right now. Check back later.
@@ -576,16 +602,14 @@ function ResearchPage() {
           className="cursor-pointer gap-1.5 px-3 py-1.5 text-xs font-normal transition-colors group-hover:bg-primary group-hover:text-primary-foreground"
           >
           <CalendarCheck className="h-3.5 w-3.5" />
-          {[slot.day, slot.time_slot].filter(Boolean).join(" · ") ||
-            "Open slot"}
-            <span className="font-medium">· Book</span>
-            </Badge>
-            </button>
+          {[slot.day, slot.time_slot].filter(Boolean).join(" · ") || "Open slot"}
+          <span className="font-medium">· Book</span>
+          </Badge>
+          </button>
         ))}
         </div>
       )}
 
-      {/* Faculty Specific Papers */}
       {selectedFacultyPapers.length > 0 && (
         <div className="mt-6 space-y-3 pt-4 border-t border-border/50">
         <div className="flex items-center justify-between">
@@ -595,7 +619,6 @@ function ResearchPage() {
         </h3>
         </div>
 
-        {/* Local Paper Search Bar */}
         <Input
         placeholder="Search these papers..."
         value={paperFilter}
@@ -606,10 +629,7 @@ function ResearchPage() {
         <div className="grid gap-3 max-h-96 overflow-y-auto pr-2">
         {filteredFacultyPapers.length > 0 ? (
           filteredFacultyPapers.map((pub) => (
-            <div
-            key={pub.id}
-            className="rounded-md border border-border bg-muted/20 p-3"
-            >
+            <div key={pub.id} className="rounded-md border border-border bg-muted/20 p-3">
             <h4 className="font-medium text-sm">{pub.title}</h4>
             <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
             <span>
@@ -626,6 +646,17 @@ function ResearchPage() {
               </a>
             )}
             </div>
+            <div className="mt-3">
+            <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => setDiscussPaper(pub)}
+            >
+            <Sparkles className="h-3 w-3 text-primary" />
+            Discuss with AI
+            </Button>
+            </div>
             </div>
           ))
         ) : (
@@ -640,7 +671,6 @@ function ResearchPage() {
       </Card>
     )}
 
-    {/* Unified AI Search Results */}
     {query && (
       <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -691,9 +721,7 @@ function ResearchPage() {
             <Card
             key={paper.id}
             className={`transition-shadow hover:shadow-md ${
-              paper.isFaculty
-              ? "border-primary/40 bg-primary/5"
-              : "border-border/60"
+              paper.isFaculty ? "border-primary/40 bg-primary/5" : "border-border/60"
             }`}
             >
             <CardHeader className="pb-2">
@@ -717,12 +745,7 @@ function ResearchPage() {
               size="icon"
               className="shrink-0 text-muted-foreground hover:text-primary"
               >
-              <a
-              href={paper.url}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open publication"
-              >
+              <a href={paper.url} target="_blank" rel="noreferrer" aria-label="Open publication">
               <ArrowUpRight className="h-4 w-4" />
               </a>
               </Button>
@@ -744,16 +767,26 @@ function ResearchPage() {
             </span>
             </div>
             </CardHeader>
+
+            <CardContent className="pt-0 space-y-4 mt-2">
             {paper.relevanceReason && (
-              <CardContent className="pt-0">
               <p className="rounded-md bg-background/60 p-2 text-xs text-muted-foreground border border-border/40">
-              <span className="font-medium text-foreground">
-              AI Insight:
-              </span>{" "}
+              <span className="font-medium text-foreground">AI Insight:</span>{" "}
               {paper.relevanceReason}
               </p>
-              </CardContent>
             )}
+            <div>
+            <Button
+            size="sm"
+            variant="secondary"
+            className="gap-1.5"
+            onClick={() => setDiscussPaper(paper)}
+            >
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            Discuss with AI
+            </Button>
+            </div>
+            </CardContent>
             </Card>
           ))}
           </div>
@@ -761,6 +794,88 @@ function ResearchPage() {
     </div>
     </main>
     </div>
+
+    {/* 🚀 NEW: Interactive AI Chatbot Modal 🚀 */}
+    {discussPaper && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-xl flex flex-col h-[75vh]">
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border p-4 bg-muted/10 rounded-t-xl">
+      <div>
+      <h3 className="flex items-center gap-2 text-lg font-semibold text-primary">
+      <Sparkles className="h-5 w-5" />
+      AI Study Companion
+      </h3>
+      <p className="text-sm text-muted-foreground mt-1 line-clamp-1">
+      Chatting about: <span className="font-medium text-foreground">{discussPaper.title}</span>
+      </p>
+      </div>
+      <Button variant="ghost" size="icon" onClick={() => setDiscussPaper(null)}>
+      <X className="h-5 w-5" />
+      </Button>
+      </div>
+
+      {/* Chat History Area */}
+      <ScrollArea className="flex-1 p-4 md:p-6 bg-card">
+      <div className="space-y-4">
+      {chatMessages.map((msg, idx) => (
+        <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+        <div
+        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+          msg.role === 'user'
+          ? 'bg-primary text-primary-foreground rounded-tr-sm'
+          : 'bg-muted/50 border border-border/50 text-foreground rounded-tl-sm'
+        }`}
+        >
+        {msg.role === 'ai' && (
+          <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-primary">
+          <Sparkles className="h-3 w-3" /> Gemini
+          </div>
+        )}
+        <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
+        </div>
+        </div>
+      ))}
+
+      {/* Loading Indicator */}
+      {isChatLoading && (
+        <div className="flex justify-start">
+        <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-4 py-3 text-sm bg-muted/50 border border-border/50 text-foreground">
+        <div className="flex items-center gap-2 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        Gemini is typing...
+        </div>
+        </div>
+        </div>
+      )}
+      </div>
+      </ScrollArea>
+
+      {/* Input Area */}
+      <div className="border-t border-border p-4 bg-muted/20 rounded-b-xl">
+      <form onSubmit={handleSendChatMessage} className="flex gap-2">
+      <Input
+      value={chatInput}
+      onChange={(e) => setChatInput(e.target.value)}
+      placeholder="Ask for a summary, key takeaways, or explanations..."
+      className="flex-1 bg-background border-border/60 shadow-sm"
+      disabled={isChatLoading}
+      autoFocus
+      />
+      <Button
+      type="submit"
+      disabled={!chatInput.trim() || isChatLoading}
+      className="gap-2 px-6"
+      >
+      Send
+      <Send className="h-4 w-4" />
+      </Button>
+      </form>
+      </div>
+      </div>
+      </div>
+    )}
     </div>
   );
 }
