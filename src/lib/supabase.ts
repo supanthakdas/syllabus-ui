@@ -1,20 +1,10 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+// Re-exports the generated Lovable Cloud client so app code has a single import.
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase as generatedSupabase } from "@/integrations/supabase/client";
 
-const url =
-  (import.meta.env["VITE_SUPABASE_URL"] as string | undefined) ??
-  (import.meta.env["VITE_SUPABASE_PROJECT_URL"] as string | undefined);
-
-const key =
-  (import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ??
-  (import.meta.env["VITE_SUPABASE_ANON_KEY"] as string | undefined);
-
-export const isSupabaseConfigured = Boolean(url && key);
-
-export const supabase: SupabaseClient | null = isSupabaseConfigured
-  ? createClient(url!, key!, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    })
-  : null;
+// Tables below aren't in the generated types yet, so expose an untyped client.
+export const supabase = generatedSupabase as unknown as SupabaseClient;
+export const isSupabaseConfigured = true;
 
 export interface Faculty {
   id: number;
