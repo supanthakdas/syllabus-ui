@@ -1,7 +1,9 @@
 // Re-exports the generated Lovable Cloud client so app code has a single import.
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase as generatedSupabase } from "@/integrations/supabase/client";
 
-export const supabase = generatedSupabase;
+// Tables below aren't in the generated types yet, so expose an untyped client.
+export const supabase = generatedSupabase as unknown as SupabaseClient;
 export const isSupabaseConfigured = true;
 
 export interface Faculty {
