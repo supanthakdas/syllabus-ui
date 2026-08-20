@@ -164,7 +164,7 @@ export function AppSidebar() {
     <div className="flex items-center justify-between px-2 py-2">
     <div className="flex items-center gap-3 overflow-hidden">
     <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-primary to-sky flex items-center justify-center text-primary-foreground font-medium text-xs">
-    {userEmail ? userEmail[0].toUpperCase() : "G"}
+    {userEmail ? userEmail.charAt(0).toUpperCase() : "G"}
     </div>
     {!collapsed && (
       <div className="flex flex-col overflow-hidden">
